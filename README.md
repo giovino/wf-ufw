@@ -65,11 +65,7 @@ A script to sumbit blocked firewall events seen in ufw logs to whiteface
   ```bash
   vim wf-ufw.py
   ```
-1. Test the script
 
-  ```bash
-  /root/bin/wf-ufw/venv/bin/python2.7 wf-ufw.py
-  ```
 1. create a supervisord config
 
   ```bash
@@ -94,5 +90,13 @@ A script to sumbit blocked firewall events seen in ufw logs to whiteface
   ```bash
   supervisord -c /etc/supervisord.conf
   ```
+1. tail /root/bin/wf-ufw/long.err.log to see it "working"
 
+  ```bash
+  $ tail -f /root/bin/wf-ufw/long.err.log
+
+  2015-12-02 21:33:38,716 - INFO - __main__[288] - looking for new ufw events
+  2015-12-02 21:33:38,732 - INFO - requests.packages.urllib3.connectionpool[735] - Starting new HTTPS connection (1): whiteface.csirtgadgets.com
+  2015-12-02 21:33:38,942 - INFO - __main__[286] - sent 2 ufw events to whiteface
+  ```
 
