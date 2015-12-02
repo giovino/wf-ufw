@@ -36,20 +36,24 @@ A script to sumbit blocked firewall events seen in ufw logs to whiteface
 ## Install
 
 1. Create a directory for this project 
+
   ```bash
   mkdir -p /root/bin/wf-ufw
   cd /root/bin/wf-ufw
   ```
 1. Download the wf-ufw.py script
+
   ```bash 
   wget https://raw.githubusercontent.com/giovino/wf-ufw/master/wf-ufw.py
   ```
 1. Create a Python virtual environment
+
   ```bash
   virtualenv venv
   source venv/bin/activate
   ```
 1. Upgrade and install packages
+
   ```bash
   pip install pip --upgrade
   pip install arrow tzlocal supervisor
@@ -57,18 +61,22 @@ A script to sumbit blocked firewall events seen in ufw logs to whiteface
   pip install https://github.com/GreatFruitOmsk/pytailer/archive/master.tar.gz
   ```
 1. Edit wf-ufw.py to fill in (WHITEFACE_USER, WHITEFACE_FEED, WHITEFACE_TOKEN)
+
   ```bash
   vim wf-ufw.py
   ```
 1. Test the script
+
   ```bash
   /root/bin/wf-ufw/venv/bin/python2.7 wf-ufw.py
   ```
 1. create a supervisord config
+
   ```bash
   echo_supervisord_conf > /etc/supervisord.conf
   ```
 1. edit the supervisord config
+
   ```bash
   vim /etc/supervisord.conf
   ```
@@ -82,6 +90,7 @@ A script to sumbit blocked firewall events seen in ufw logs to whiteface
   stdout_logfile=/root/bin/wf-ufw/long.out.log
   ```
 1. start supervisord
+
   ```bash
   supervisord -c /etc/supervisord.conf
   ```
