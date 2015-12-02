@@ -278,7 +278,6 @@ def main():
 
     events = []
     for line in tailer.follow_path(filename):
-        logger.info("looking for new ufw events")
         if line is not None:
             events.append(line)
         else:
@@ -286,6 +285,7 @@ def main():
                 sent_count = process_events(events)
                 logger.info("sent {0} ufw events to whiteface".format(sent_count))
             time.sleep(sleep_seconds)
+            logger.info("looking for new ufw events")
             events = []
 
 
