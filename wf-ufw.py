@@ -1,8 +1,8 @@
 import tailer  # pip install tailer
 import time
-import pygrok  # pip install pygrok
 import arrow  # pip install arrow
 import logging
+import re
 
 from tzlocal import get_localzone  # pip install tzlocal
 from whitefacesdk.client import Client
@@ -30,22 +30,10 @@ filename = '/var/log/ufw.log'
 LOG_FORMAT = '%(asctime)s - %(levelname)s - %(name)s[%(lineno)s] - %(message)s'
 logger = logging.getLogger(__name__)
 
-# grok regular expressions for ufw logs
-ufw_log_pattern = '%{SYSLOGTIMESTAMP:ufw_timestamp} %{SYSLOGHOST:ufw_hostname} %{DATA:ufw_program}(?:' \
-                  '\[%{POSINT:ufw_pid}\])?: %{GREEDYDATA:ufw_message}'
-
-ufw_message_pattern = '\[%{DATA}\] \[UFW %{WORD:ufw_action}\] IN=%{DATA:ufw_interface} OUT= MAC=%{DATA:ufw_mac} ' \
-                      'SRC=%{IP:ufw_src_ip} DST=%{IP:ufw_dest_ip} %{GREEDYDATA:ufw_tcp_opts} ' \
-                      'PROTO=%{WORD:ufw_protocol} SPT=%{INT:ufw_src_port} DPT=%{INT:ufw_dst_port} ' \
-                      '%{GREEDYDATA:ufw_tcp_opts}'
-
-ufw_tcp_opts_pattern = 'WINDOW=%{INT:ufw_tcp_window} RES=%{BASE16NUM:ufw_tcp_res} %{WORD:ufw_tcp_flag} ' \
-                       'URGP=%{INT:ufw_tcp_urgp}'
-
 
 def parse_record(line):
     """
-    Parse a single ufw firewall log record using grok regular expressions and return a single dictionary
+    Parse a single ufw firewall log record using regular expressions and return a single dictionary
 
     :param line: single ufw firwall log record
     :return: dictionary
@@ -53,21 +41,150 @@ def parse_record(line):
 
     record = {}
 
-    log_d = pygrok.grok_match(line, ufw_log_pattern)
-    message_d = pygrok.grok_match(log_d['ufw_message'], ufw_message_pattern)
-    tcp_opts_d = pygrok.grok_match(message_d['ufw_tcp_opts'], ufw_tcp_opts_pattern)
+    # parse of entire ufw log record
+    log_l = re.split(r'\s+', line, 6)
+    # set syslog time stamp
+    record['ufw_timestamp'] = "{0} {1} {2}".format(log_l[0], log_l[1], log_l[2])
+    # set hostname
+    record['ufw_hostname'] = log_l[3]
+    # set program
+    record['ufw_program'] = log_l[4]
+    # find pid
+    m = re.match('\[(\S+)\]',log_l[5])
+    # set pid
+    record['ufw_pid'] = m.group(1)
+    # set ufw message
+    record['ufw_message'] = log_l[6]
 
-    # note: need to support python2.7.x here too ( log_d.items(), message_d.items() )
-    for key, value in log_d.items():
-        record[key] = value
+    # parse ufw_message bits
+    m = re.match('\[UFW\s(\S+)\]\s(.*)', record['ufw_message'])
+    # set ufw action
+    record['ufw_action'] = m.group(1)
 
-    for key, value in message_d.items():
-        record[key] = value
+    # continue parsing ufw_message
+    _r1 = re.split(r'\s+', m.group(2), 3)
 
-    for key, value in tcp_opts_d.items():
-        record[key] = value
+    # parse layer 2 items (in, out, mac)
+    base = _r1[:-1]
+
+    # parse string after base bits
+    leftover = re.split(r'\s+', _r1[-1])
+
+    #pprint(leftover)
+
+    for item in base:
+        if item.startswith('IN'):
+            record['ufw_interface_in'] = _split_equal(item)
+        elif item.startswith('OUT'):
+            record['ufw_interface_out'] = _split_equal(item)
+        elif item.startswith('MAC'):
+            record['ufw_mac'] = _split_equal(item)
+
+    #print(leftover)
+
+    # iterate through a copy of the leftover list
+    for item in leftover[:]:
+        record['ufw_ip_flag_ce'] = 0
+        record['ufw_ip_flag_df'] = 0
+        record['ufw_ip_flag_mf'] = 0
+
+        if item.startswith('SRC'):
+            record['ufw_src_ip'] = _split_equal(item)
+        elif item.startswith('DST'):
+            record['ufw_dest_ip'] = _split_equal(item)
+        elif item.startswith('LEN'):
+            record['ufw_ip_len'] = _split_equal(item)
+        elif item.startswith('TOS'):
+            record['ufw_ip_tos'] = _split_equal(item)
+        elif item.startswith('PREC'):
+            record['ufw_ip_prec'] = _split_equal(item)
+        elif item.startswith('TTL'):
+            record['ufw_ip_ttl'] = _split_equal(item)
+        elif item.startswith('ID'):
+            record['ufw_ip_id'] = _split_equal(item)
+        elif item == "CE":
+            record['ufw_ip_flag_ce'] = 1
+        elif item == "DF":
+            record['ufw_ip_flag_df'] = 1
+        elif item == "MF":
+            record['ufw_ip_flag_mf'] = 1
+        else:
+            continue
+
+        leftover.remove(item)
+
+    # parse out protocols
+    if leftover[0] == 'PROTO=TCP':
+        record['ufw_protocol'] = 'TCP'
+        record['ufw_tcp_flag_cwr'] = 0
+        record['ufw_tcp_flag_ece'] = 0
+        record['ufw_tcp_flag_urg'] = 0
+        record['ufw_tcp_flag_ack'] = 0
+        record['ufw_tcp_flag_psh'] = 0
+        record['ufw_tcp_flag_rst'] = 0
+        record['ufw_tcp_flag_syn'] = 0
+        record['ufw_tcp_flag_fin'] = 0
+
+        for item in leftover:
+            if item.startswith('SPT'):
+                record['ufw_src_port'] = _split_equal(item)
+            elif item.startswith('DPT'):
+                record['ufw_dst_port'] = _split_equal(item)
+            elif item.startswith('WINDOW'):
+                record['ufw_tcp_window'] = _split_equal(item)
+            elif item.startswith('RES'):
+                record['ufw_tcp_res'] = _split_equal(item)
+            elif item.startswith('URGP'):
+                record['ufw_tcp_urgp'] = _split_equal(item)
+            elif item == "CWR":
+                record['ufw_tcp_flag_cwr'] = 1
+            elif item == "ECE":
+                record['ufw_tcp_flag_ece'] = 1
+            elif item == "URG":
+                record['ufw_tcp_flag_urg'] = 1
+            elif item == "ACK":
+                record['ufw_tcp_flag_ack'] = 1
+            elif item == "PSH":
+                record['ufw_tcp_flag_psh'] = 1
+            elif item == "RST":
+                record['ufw_tcp_flag_rst'] = 1
+            elif item == "SYN":
+                record['ufw_tcp_flag_syn'] = 1
+            elif item == "FIN":
+                record['ufw_tcp_flag_fin'] = 1
+
+    elif leftover[0] == 'PROTO=UDP':
+        record['ufw_protocol'] = 'UDP'
+
+        for item in leftover:
+            if item.startswith('SPT'):
+                record['ufw_src_port'] = _split_equal(item)
+            elif item.startswith('DPT'):
+                record['ufw_dst_port'] = _split_equal(item)
+            elif item.startswith('LEN'):
+                record['ufw_udp_len'] = _split_equal(item)
+
+    elif leftover[0] == 'PROTO=ICMP':
+        record['ufw_protocol'] = 'ICMP'
+
+        for item in leftover:
+            if item.startswith('TYPE'):
+                record['ufw_icmp_type'] = _split_equal(item)
+            elif item.startswith('CODE'):
+                record['ufw_icmp_code'] = _split_equal(item)
+            # need to parse out ICMP types of those are determined to be needed
 
     return record
+
+def _split_equal(item):
+    """
+    This function takes in a value in teh form <key>=<value> and returns the value
+
+    :param item: (eg: SRC=141.212.121.155)
+    :return: value [str]
+    """
+    result = item.rsplit('=', 1)
+    return result[1]
 
 
 def normalize_syslog_timestamp(syslog_timestamp, time_now, local_tz):
@@ -84,7 +201,7 @@ def normalize_syslog_timestamp(syslog_timestamp, time_now, local_tz):
     now_month = time_now.month
 
     # semi normalize syslog timestamp
-    syslog_timestamp_obj = arrow.get(syslog_timestamp, 'MMM DD HH:mm:ss')
+    syslog_timestamp_obj = arrow.get(syslog_timestamp, ['MMM  D HH:mm:ss', 'MMM D HH:mm:ss'])
 
     # get the month of the syslog timestamp
     event_month = syslog_timestamp_obj.month
@@ -130,7 +247,7 @@ def process_events(events):
 
         if record['ufw_action'] == 'BLOCK':
             if record['ufw_protocol'] == 'TCP':
-                if record['ufw_tcp_flag'] == 'SYN':
+                if record['ufw_tcp_flag_syn'] == 1:
                     data = {
                         "user": WHITEFACE_USER,
                         "feed": WHITEFACE_FEED,
