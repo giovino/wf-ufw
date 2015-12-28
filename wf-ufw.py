@@ -6,7 +6,7 @@ import re
 
 from tzlocal import get_localzone  # pip install tzlocal
 from whitefacesdk.client import Client
-from whitefacesdk.observable import Observable
+from whitefacesdk.indicator import Indicator
 from pprint import pprint
 
 # this is a crappy work around for using python 2.7.6 that
@@ -251,7 +251,7 @@ def process_events(events):
                     data = {
                         "user": WHITEFACE_USER,
                         "feed": WHITEFACE_FEED,
-                        "observable": record['ufw_src_ip'],
+                        "indicator": record['ufw_src_ip'],
                         "tags": "scanner",
                         "description": "sourced from firewall logs (incomming, TCP, Syn, blocked)",
                         "portlist": record['ufw_dst_port'],
@@ -259,8 +259,8 @@ def process_events(events):
                         "lasttime": normalized_timestamp
                         }
                     try:
-                        ret = Observable(cli, data).submit()
-                        if ret['observable']['id']:
+                        ret = Indicator(cli, data).submit()
+                        if ret['indicator']['id']:
                             sent_count += 1
                     except Exception as e:
                         raise Exception(e)
